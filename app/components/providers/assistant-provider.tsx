@@ -2,29 +2,125 @@ import {
     AssistantRuntimeProvider,
     useLocalRuntime,
     type ChatModelAdapter,
+    type ModelContext,
+    type ThreadMessage,
 } from "@assistant-ui/react";
 
 import type { ReactNode } from "react";
 
 // https://www.assistant-ui.com/docs/runtimes/custom/local
-// !not set up for streaming yet. Test this for now.
+// Streaming implementation following: https://www.assistant-ui.com/docs/runtimes/custom/local#streaming-responses
+
 const ModelAdapter: ChatModelAdapter = {
-    async run({ messages, abortSignal, context }) {
-        // TODO: test api call
+    async *run({ messages, abortSignal, context }) {
         const res = await fetch("/api/chat", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
             },
-            // Forward message in the chat to api route
             body: JSON.stringify({ messages }),
-            // TODO: test user 'cancel' button + escape key... see cancel work
             signal: abortSignal,
         });
 
-        const data = await res.json();
+        if (!res.ok) {
+            throw new Error(`API request failed: ${res.statusText}`);
+        }
 
-        return { content: [{ type: "text", text: data.text }] };
+        if (!res.body) {
+            throw new Error("Response body is null");
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let text = "";
+
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+
+                if (done) {
+                    break;
+                }
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop() || "";
+
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+
+                    // Handle SSE format (data: {...})
+                    if (line.startsWith("data: ")) {
+                        // TODO: make sure this is correct
+                        const data = line.slice(6);
+                        if (data === "[DONE]") {
+                            continue;
+                        }
+
+                        try {
+                            const chunk = JSON.parse(data);
+
+                            // Handle UI message stream format from ai SDK... e.g., { type: "text-delta", textDelta: "..." }
+                            if (
+                                chunk.type === "text-delta" &&
+                                chunk.textDelta
+                            ) {
+                                text += chunk.textDelta;
+                                yield {
+                                    content: [{ type: "text", text }],
+                                };
+                                // Text chunks
+                            } else if (chunk.type === "text" && chunk.text) {
+                                text = chunk.text;
+                                yield {
+                                    content: [{ type: "text", text }],
+                                };
+                                // Tool calls
+                            } else if (chunk.type === "tool-call") {
+                                const args = chunk.args || {};
+                                yield {
+                                    content: [
+                                        {
+                                            type: "tool-call" as const,
+                                            toolCallId: chunk.toolCallId,
+                                            toolName: chunk.toolName,
+                                            args: args,
+                                            argsText: JSON.stringify(args),
+                                        },
+                                    ],
+                                };
+                            }
+                        } catch (e) {
+                            console.warn("Failed to parse chunk:", line, e);
+                        }
+                    } else if (line.trim()) {
+                        // Try parsing as direct JSON for non-SSE format
+                        try {
+                            const chunk = JSON.parse(line);
+                            if (
+                                chunk.type === "text-delta" &&
+                                chunk.textDelta
+                            ) {
+                                text += chunk.textDelta;
+                                yield {
+                                    content: [{ type: "text", text }],
+                                };
+                            } else if (chunk.type === "text" && chunk.text) {
+                                text = chunk.text;
+                                yield {
+                                    content: [{ type: "text", text }],
+                                };
+                            }
+                        } catch (e) {
+                            // skipp
+                        }
+                    }
+                }
+            }
+        } finally {
+            reader.releaseLock();
+        }
     },
 };
 
