@@ -186,6 +186,10 @@ body {
     --shadow-2xl: var(--shadow-2xl);
 }
 
+.thread-viewport > [data-radix-scroll-area-content] {
+    @apply flex flex-col items-center self-stretch bg-inherit;
+}
+
 @layer base {
     * {
         @apply border-border outline-ring/50;
