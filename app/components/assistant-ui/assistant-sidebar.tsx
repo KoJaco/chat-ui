@@ -1,22 +1,10 @@
-import {
-    ResizableHandle,
-    ResizablePanel,
-    ResizablePanelGroup,
-} from "~/components/ui/resizable";
-import type { FC, PropsWithChildren } from "react";
-
+import type { FC } from "react";
 import { Thread } from "~/components/assistant-ui/thread";
 
-export const AssistantSidebar: FC<PropsWithChildren> = ({ children }) => {
+export const AssistantSidebar: FC = () => {
     return (
-        <ResizablePanelGroup direction="horizontal" className="h-full">
-            <ResizablePanel defaultSize={25} minSize={20} maxSize={40}>
-                {children}
-            </ResizablePanel>
-            <ResizableHandle />
-            <ResizablePanel defaultSize={75} minSize={60}>
-                <Thread />
-            </ResizablePanel>
-        </ResizablePanelGroup>
+        <aside className="flex h-full w-full flex-col overflow-hidden bg-background md:w-[376px] lg:w-[410px] xl:w-[450px]">
+            <Thread />
+        </aside>
     );
 };
